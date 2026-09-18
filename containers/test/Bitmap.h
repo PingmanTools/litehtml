@@ -1,6 +1,11 @@
 #pragma once
 #include <litehtml.h>
 using namespace litehtml;
+using std::string;
+using std::vector;
+using std::optional;
+using std::min;
+using std::max;
 using rect = position;
 namespace canvas_ity
 {

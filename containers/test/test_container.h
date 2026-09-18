@@ -23,7 +23,7 @@ class test_container : public document_container
     string make_url(const char* src, const char* baseurl);
 
     uint_ptr create_font(const font_description& descr, const document* doc, litehtml::font_metrics* fm) override;
-    void     delete_font(uint_ptr /*hFont*/) override {}
+    void     delete_font(uint_ptr hFont) override;
     pixel_t  text_width(const char* text, uint_ptr hFont) override;
     void     draw_text(uint_ptr hdc, const char* text, uint_ptr hFont, web_color color, const position& pos) override;
     pixel_t  pt_to_px(float pt) const override;

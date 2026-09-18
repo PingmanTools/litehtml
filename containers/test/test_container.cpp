@@ -123,6 +123,11 @@ uint_ptr test_container::create_font(const font_description& descr, const docume
     return (uint_ptr) font;
 }
 
+void test_container::delete_font(uint_ptr hFont)
+{
+    delete reinterpret_cast<Font*>(hFont);
+}
+
 pixel_t test_container::text_width(const char* text, uint_ptr hFont)
 {
     Font* font = (Font*) hFont;

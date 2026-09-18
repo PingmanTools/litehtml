@@ -3,6 +3,7 @@
 class Font : public font_metrics
 {
   public:
+    virtual ~Font() = default;
     static Font*    create(string face, int size, int weight);
     virtual pixel_t text_width(string text)                                           = 0;
     virtual void    draw_text(canvas& canvas, string text, color color, int x, int y) = 0;
