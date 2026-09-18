@@ -2,6 +2,7 @@
 #include "os_types.h"
 #include "utf8_strings.h"
 #include "encodings.h"
+#include <stdexcept>
 #include <cassert>
 #include <utility>
 
@@ -316,6 +317,7 @@ namespace litehtml
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#if !defined(LITEHTML_UTF8_ONLY) || !LITEHTML_UTF8_ONLY
     struct single_byte_decoder final : decoder
     {
         int* m_index; // https://encoding.spec.whatwg.org/#index-single-byte
@@ -7467,8 +7469,15 @@ namespace litehtml
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+#endif // legacy decoders
+
     decoder::ptr get_decoder(encoding _encoding)
     {
+#if defined(LITEHTML_UTF8_ONLY) && LITEHTML_UTF8_ONLY
+        if(_encoding != encoding::utf_8)
+            throw std::invalid_argument("This litehtml build accepts only UTF-8 input");
+        return std::make_shared<utf_8_decoder>();
+#else
         switch(_encoding)
         {
         case encoding::utf_8:
@@ -7512,6 +7521,7 @@ namespace litehtml
         }
 
         return nullptr;
+#endif
     }
 
     /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -8260,6 +8270,15 @@ namespace litehtml
     // see also doc/document_createFromString.txt
     void encoding_sniffing_algorithm(estring& str)
     {
+#if defined(LITEHTML_UTF8_ONLY) && LITEHTML_UTF8_ONLY
+        const auto bom = bom_sniff(str);
+        if((str.encoding != encoding::null && str.encoding != encoding::utf_8) ||
+            (bom != encoding::null && bom != encoding::utf_8))
+            throw std::invalid_argument("This litehtml build accepts only UTF-8 input");
+        str.encoding = encoding::utf_8;
+        str.confidence = confidence::certain;
+        return;
+#else
         // 1. If the result of BOM sniffing is an encoding, return that encoding with confidence certain.
         encoding encoding = bom_sniff(str);
         if(encoding != encoding::null)
@@ -8308,6 +8327,7 @@ namespace litehtml
                 confidence::tentative; // tentative means it will be overridden by <meta> encoding if present
         }
         // otherwise use str.encoding (tentative)
+#endif
     }
 
 } // namespace litehtml

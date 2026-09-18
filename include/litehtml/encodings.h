@@ -65,6 +65,7 @@ namespace litehtml
         // irrelevant // not used here
     };
 
+    // LITEHTML_UTF8_ONLY ignores HTML charset declarations and rejects non-UTF-8 input encodings.
     // Used as argument for document::createFromString, parse_html and encoding_sniffing_algorithm.
     struct estring : std::string // string with encoding
     {

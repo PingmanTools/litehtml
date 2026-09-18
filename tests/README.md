@@ -20,3 +20,11 @@ On Linux, configure with `-DCMAKE_C_FLAGS=-fsanitize=address`
 `-DCMAKE_CXX_FLAGS=-fsanitize=address` and run with `ASAN_OPTIONS=detect_leaks=1`.
 The existing external Cairo suite remains available through
 `LITEHTML_BUILD_TESTING` in the main build.
+
+Test the UTF-8-only configuration in a separate build directory:
+
+```sh
+cmake -S tests -B build/regressions-utf8 -DCMAKE_BUILD_TYPE=Release -DLITEHTML_UTF8_ONLY=ON
+cmake --build build/regressions-utf8 --parallel
+ctest --test-dir build/regressions-utf8 --output-on-failure
+```

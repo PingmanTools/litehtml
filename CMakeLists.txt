@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.11)
 project(litehtml LANGUAGES C CXX)
 
 option(LITEHTML_BUILD_TESTING "enable testing for litehtml" OFF)
+option(LITEHTML_UTF8_ONLY "Accept only UTF-8 input; omit legacy encoding decoders" OFF)
 option(LITEHTML_ENABLE_LINT "enable linting for litehtml" ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -190,6 +191,9 @@ else()
 endif()
 
 add_library(${PROJECT_NAME} ${HEADER_LITEHTML} ${SOURCE_LITEHTML})
+if(LITEHTML_UTF8_ONLY)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC LITEHTML_UTF8_ONLY=1)
+endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
 	VERSION ${PROJECT_LIB_VERSION}
 	SOVERSION ${PROJECT_SO_VERSION}
