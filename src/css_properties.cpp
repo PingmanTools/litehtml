@@ -500,7 +500,7 @@ void litehtml::css_properties::compute_font(const html_tag* el, const document::
 
     font_description descr;
     descr.family               = m_font_family;
-    descr.size                 = std::round(font_size.value());
+    descr.size                 = doc->container()->resolve_font_size(font_size);
     descr.style                = m_font_style;
     descr.weight               = static_cast<int>(m_font_weight.val());
     descr.decoration_line      = m_text_decoration_line;
@@ -632,13 +632,7 @@ void litehtml::css_properties::snap_border_width(css_length& width, const std::s
 
     pixel_t px = doc->to_pixels(width, m_font_metrics, 0_px);
 
-    if(px > 0_px && px < 1_px)
-    {
-        px = 1_px;
-    } else
-    {
-        px = std::floor(px.value());
-    }
+    px = doc->container()->resolve_border_width(px);
 
     width.set_value(px.value(), css_units_px);
 }

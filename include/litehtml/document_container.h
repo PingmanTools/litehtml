@@ -7,6 +7,7 @@
 #include "borders.h"
 #include "element.h"
 #include "font_description.h"
+#include <cmath>
 #include <memory>
 #include <functional>
 
@@ -33,6 +34,19 @@ namespace litehtml
     class document_container
     {
       public:
+        // Changing size resolution requires recomputing styles and layout.
+        virtual pixel_t resolve_font_size(pixel_t size) const
+        {
+            return pixel_t(std::round(size.value()));
+        }
+        virtual pixel_t resolve_border_width(pixel_t width) const
+        {
+            return width > 0_px && width < 1_px ? 1_px : pixel_t(std::floor(width.value()));
+        }
+
+        // Paint rounding does not affect layout geometry.
+        virtual void round_paint_position(position& pos) const { pos.round(); }
+
         virtual litehtml::uint_ptr create_font(const font_description& descr, const document* doc,
                                                litehtml::font_metrics* fm)                                          = 0;
         virtual void               delete_font(litehtml::uint_ptr hFont)                                            = 0;

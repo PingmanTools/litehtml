@@ -936,9 +936,9 @@ namespace litehtml
 
                         layer.border_radius = bdr.radius.calc_percents(box.width, box.height);
 
-                        layer.border_box.round();
-                        layer.clip_box.round();
-                        layer.origin_box.round();
+                        get_document()->container()->round_paint_position(layer.border_box);
+                        get_document()->container()->round_paint_position(layer.clip_box);
+                        get_document()->container()->round_paint_position(layer.origin_box);
 
                         bg->draw_layer(hdc, i, layer, get_document()->container());
                     }
@@ -947,7 +947,7 @@ namespace litehtml
                 {
                     borders b = bdr;
                     b.radius  = bdr.radius.calc_percents(box.width, box.height);
-                    box.round();
+                    get_document()->container()->round_paint_position(box);
                     get_document()->container()->draw_borders(hdc, b, box, false);
                 }
             }
@@ -989,9 +989,9 @@ namespace litehtml
                             layer.border_box = *clip;
                         }
 
-                        layer.border_box.round();
-                        layer.clip_box.round();
-                        layer.origin_box.round();
+                        get_document()->container()->round_paint_position(layer.border_box);
+                        get_document()->container()->round_paint_position(layer.clip_box);
+                        get_document()->container()->round_paint_position(layer.origin_box);
 
                         bg->draw_layer(hdc, i, layer, get_document()->container());
                     }
@@ -1000,7 +1000,7 @@ namespace litehtml
                 borders bdr = m_css.get_borders();
                 if(bdr.is_visible())
                 {
-                    border_box.round();
+                    get_document()->container()->round_paint_position(border_box);
                     bdr.radius = m_css.get_borders().radius.calc_percents(border_box.width, border_box.height);
                     get_document()->container()->draw_borders(hdc, bdr, border_box, is_root());
                 }
@@ -1163,7 +1163,7 @@ namespace litehtml
                     auto text_pos  = lm.pos;
                     text_pos.move_to(text_pos.right() - tw, text_pos.y);
                     text_pos.width = tw;
-                    text_pos.round();
+                    get_document()->container()->round_paint_position(text_pos);
                     get_document()->container()->draw_text(hdc, marker_text.c_str(), lm.font, lm.color, text_pos);
                 }
             }
