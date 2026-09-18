@@ -30,6 +30,18 @@
 
 namespace litehtml
 {
+    namespace
+    {
+        struct gumbo_output_deleter
+        {
+            void operator()(GumboOutput* output) const
+            {
+                gumbo_destroy_output(&kGumboDefaultOptions, output);
+            }
+        };
+        using owned_gumbo_output = std::unique_ptr<GumboOutput, gumbo_output_deleter>;
+    }
+
 
     document::document(document_container* container)
     {
@@ -55,7 +67,7 @@ namespace litehtml
         document::ptr doc = std::make_shared<document>(container);
 
         // Parse document into GumboOutput
-        GumboOutput* output = doc->parse_html(str);
+        owned_gumbo_output output(doc->parse_html(str));
 
         // mode must be set before doc->create_node because it is used in html_tag::set_attr
         switch(output->document->v.document.doc_type_quirks_mode)
@@ -81,7 +93,7 @@ namespace litehtml
         }
 
         // Destroy GumboOutput
-        gumbo_destroy_output(&kGumboDefaultOptions, output);
+        output.reset();
 
         doc->finalize_from_external_root(root, master_styles, user_styles);
 
@@ -274,11 +286,11 @@ namespace litehtml
         // Instead, we parse entire file and then handle <meta> tags.
 
         // Using gumbo_parse_with_options to pass string length (m_text may contain NUL chars).
-        GumboOutput* output = gumbo_parse_with_options(&kGumboDefaultOptions, m_text.data(), m_text.size());
+        owned_gumbo_output output(gumbo_parse_with_options(&kGumboDefaultOptions, m_text.data(), m_text.size()));
 
         if(str.confidence == confidence::certain)
         {
-            return output;
+            return output.release();
         }
 
         // Otherwise: confidence is tentative.
@@ -292,7 +304,7 @@ namespace litehtml
             if(new_encoding != str.encoding)
             {
                 // ...reparse with the new encoding.
-                gumbo_destroy_output(&kGumboDefaultOptions, output);
+                output.reset();
                 m_text.clear();
 
                 if(new_encoding == encoding::utf_8)
@@ -302,11 +314,11 @@ namespace litehtml
                 {
                     decode(str, new_encoding, m_text);
                 }
-                output = gumbo_parse_with_options(&kGumboDefaultOptions, m_text.data(), m_text.size());
+                output.reset(gumbo_parse_with_options(&kGumboDefaultOptions, m_text.data(), m_text.size()));
             }
         }
 
-        return output;
+        return output.release();
     }
 
     void document::create_node(void* gnode, elements_list& elements, bool parseTextNode, bool process_root)
@@ -1143,7 +1155,7 @@ namespace litehtml
         // Although Gumbo always creates html tag anyway. We have to ignore it in create_node.
         opts.fragment_context = GUMBO_TAG_BODY;
         // parse document into GumboOutput
-        GumboOutput* output = gumbo_parse_with_options(&opts, str, strlen(str));
+        owned_gumbo_output output(gumbo_parse_with_options(&opts, str, strlen(str)));
 
         // Create litehtml::elements.
         elements_list child_elements;
@@ -1151,7 +1163,7 @@ namespace litehtml
         create_node(output->root, child_elements, true, false);
 
         // Destroy GumboOutput
-        gumbo_destroy_output(&kGumboDefaultOptions, output);
+        output.reset();
 
         auto parent_render = parent.get_render_item();
 
