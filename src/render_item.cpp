@@ -1,9 +1,11 @@
 #include "render_item.h"
 #include "document.h"
+#include "html_tag.h"
 #include "document_container.h"
 #include "types.h"
 #include <algorithm>
 #include <typeinfo>
+#include <exception>
 
 litehtml::render_item::render_item(std::shared_ptr<element> _src_el) :
     m_element(std::move(_src_el))
@@ -877,6 +879,31 @@ void litehtml::render_item::calc_document_size(litehtml::size& sz, pixel_t x /*=
     }
 }
 
+bool litehtml::render_item::is_opacity_group() const
+{
+    return src_el()->css().get_opacity() < 1 && src_el()->get_document()->container()->supports_opacity_groups();
+}
+
+void litehtml::render_item::draw_group(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip, bool with_positioned)
+{
+    const auto opacity = src_el()->css().get_opacity();
+    if(opacity <= 0) return;
+    auto container = src_el()->get_document()->container();
+    const bool grouped = is_opacity_group();
+    if(grouped) container->push_opacity(opacity);
+    try
+    {
+        draw_self(hdc, x, y, clip);
+        draw_stacking_context(hdc, x, y, clip, with_positioned || grouped);
+    }
+    catch(...)
+    {
+        if(grouped) { try { container->pop_opacity(); } catch(...) {} }
+        throw;
+    }
+    if(grouped) container->pop_opacity();
+}
+
 void litehtml::render_item::draw_stacking_context(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip,
                                                   bool with_positioned)
 {
@@ -893,6 +920,20 @@ void litehtml::render_item::draw_stacking_context(uint_ptr hdc, pixel_t x, pixel
             z_indexes[idx->src_el()->css().get_z_index()];
         }
 
+        if(is_opacity_group())
+        {
+            const auto collect = [&](const auto& visit, const render_item& parent) -> void
+            {
+                for(const auto& child : parent.m_children)
+                {
+                    if(child->src_el()->is_positioned())
+                        z_indexes[child->src_el()->css().get_z_index()];
+                    else if(!child->is_opacity_group())
+                        visit(visit, *child);
+                }
+            };
+            collect(collect, *this);
+        }
         for(const auto& idx : z_indexes)
         {
             if(idx.first < 0)
@@ -927,6 +968,12 @@ void litehtml::render_item::draw_stacking_context(uint_ptr hdc, pixel_t x, pixel
 void litehtml::render_item::draw_children(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip, draw_flag flag,
                                           int zindex)
 {
+    render_paint_scope paint(*this, x, y, true);
+    if(!paint.visible())
+    {
+        return;
+    }
+    clip          = paint.clip(clip);
     position pos  = m_pos;
     pos.x        += x - get_scroll_left();
     pos.y        += y - get_scroll_top();
@@ -959,6 +1006,12 @@ void litehtml::render_item::draw_children(uint_ptr hdc, pixel_t x, pixel_t y, co
     {
         if(el->is_visible())
         {
+            if(el->is_opacity_group() && !el->src_el()->is_positioned())
+            {
+                if(flag == draw_inlines)
+                    el->draw_group(hdc, pos.x, pos.y, clip, true);
+                continue;
+            }
             bool process = true;
             switch(flag)
             {
@@ -968,12 +1021,10 @@ void litehtml::render_item::draw_children(uint_ptr hdc, pixel_t x, pixel_t y, co
                     if(el->src_el()->css().get_position() == element_position_fixed)
                     {
                         // Fixed elements position is always relative to the (0,0)
-                        el->src_el()->draw(hdc, 0_px, 0_px, clip, el);
-                        el->draw_stacking_context(hdc, 0_px, 0_px, clip, true);
+                        el->draw_group(hdc, 0_px, 0_px, clip, true);
                     } else
                     {
-                        el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
-                        el->draw_stacking_context(hdc, pos.x, pos.y, clip, true);
+                        el->draw_group(hdc, pos.x, pos.y, clip, true);
                     }
                     process = false;
                 }
@@ -982,14 +1033,13 @@ void litehtml::render_item::draw_children(uint_ptr hdc, pixel_t x, pixel_t y, co
                 if(!el->src_el()->is_inline() && el->src_el()->css().get_float() == float_none &&
                    !el->src_el()->is_positioned())
                 {
-                    el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
+                    el->draw_self(hdc, pos.x, pos.y, clip);
                 }
                 break;
             case draw_floats:
                 if(el->src_el()->css().get_float() != float_none && !el->src_el()->is_positioned())
                 {
-                    el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
-                    el->draw_stacking_context(hdc, pos.x, pos.y, clip, false);
+                    el->draw_group(hdc, pos.x, pos.y, clip, false);
                     process = false;
                 }
                 break;
@@ -997,7 +1047,7 @@ void litehtml::render_item::draw_children(uint_ptr hdc, pixel_t x, pixel_t y, co
                 if(el->src_el()->is_inline() && el->src_el()->css().get_float() == float_none &&
                    !el->src_el()->is_positioned())
                 {
-                    el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
+                    el->draw_self(hdc, pos.x, pos.y, clip);
                     if(el->src_el()->css().get_display() == display_inline_block ||
                        el->src_el()->css().get_display() == display_inline_flex)
                     {
@@ -1030,7 +1080,7 @@ void litehtml::render_item::draw_children(uint_ptr hdc, pixel_t x, pixel_t y, co
         }
     }
 
-    if(src_el()->css().get_overflow() > overflow_visible)
+    if(src_el()->css().get_overflow() > overflow_visible && src_el()->css().get_display() != display_inline)
     {
         doc->container()->del_clip();
     }
@@ -1040,6 +1090,10 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_child_by_point(
     pixel_t x, pixel_t y, pixel_t client_x, pixel_t client_y, draw_flag flag, int zindex,
     const std::function<bool(const std::shared_ptr<render_item>&)>& check)
 {
+    if(!map_paint_point(x, y, client_x, client_y, true))
+    {
+        return nullptr;
+    }
     if(src_el()->css().get_overflow() > overflow_visible)
     {
         if(!m_pos.is_point_inside(x, y))
@@ -1069,7 +1123,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_child_by_point(
                     if(el->src_el()->css().get_position() == element_position_fixed)
                     {
                         ret = el->get_element_by_point(client_x, client_y, client_x, client_y, check);
-                        if(!ret && el->is_point_inside(client_x, client_y))
+                        if(!ret && el->is_paint_point_inside(client_x, client_y))
                         {
                             if(!check || check(el))
                             {
@@ -1079,7 +1133,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_child_by_point(
                     } else
                     {
                         ret = el->get_element_by_point(el_pos.x, el_pos.y, client_x, client_y, check);
-                        if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
+                        if(!ret && el->is_paint_point_inside(el_pos.x, el_pos.y))
                         {
                             if(!check || check(el))
                             {
@@ -1096,7 +1150,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_child_by_point(
                 {
                     ret = el->get_child_by_point(el_pos.x, el_pos.y, client_x, client_y, flag, zindex, check);
 
-                    if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
+                    if(!ret && el->is_paint_point_inside(el_pos.x, el_pos.y))
                     {
                         if(!check || check(el))
                         {
@@ -1111,7 +1165,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_child_by_point(
                 {
                     ret = el->get_element_by_point(el_pos.x, el_pos.y, client_x, client_y, check);
 
-                    if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
+                    if(!ret && el->is_paint_point_inside(el_pos.x, el_pos.y))
                     {
                         ret = el->src_el();
                     }
@@ -1129,7 +1183,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_child_by_point(
                         ret     = el->get_element_by_point(el_pos.x, el_pos.y, client_x, client_y, check);
                         process = false;
                     }
-                    if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
+                    if(!ret && el->is_paint_point_inside(el_pos.x, el_pos.y))
                     {
                         if(!check || check(el))
                         {
@@ -1205,6 +1259,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_element_by_point(
     pixel_t x, pixel_t y, pixel_t client_x, pixel_t client_y,
     const std::function<bool(const std::shared_ptr<render_item>&)>& check)
 {
+    document::motion_viewport_scope motion_scope(*src_el()->get_document());
     if(!is_visible())
     {
         return nullptr;
@@ -1275,7 +1330,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_element_by_point(
 
     if(src_el()->css().get_position() == element_position_fixed)
     {
-        if(is_point_inside(client_x, client_y))
+        if(is_paint_point_inside(client_x, client_y))
         {
             if(!check || check(this->shared_from_this()))
             {
@@ -1284,7 +1339,7 @@ std::shared_ptr<litehtml::element> litehtml::render_item::get_element_by_point(
         }
     } else
     {
-        if(is_point_inside(x, y))
+        if(is_paint_point_inside(x, y))
         {
             if(!check || check(this->shared_from_this()))
             {
@@ -1609,4 +1664,208 @@ std::tuple<litehtml::pixel_t, litehtml::pixel_t> litehtml::render_item::element_
 void litehtml::render_item::y_shift(pixel_t delta)
 {
     m_pos.y += delta;
+}
+
+litehtml::render_paint_scope::render_paint_scope(render_item& item, pixel_t x, pixel_t y, bool children) :
+    m_container(item.src_el()->get_document()->container()),
+    m_opacity(m_container->paint_opacity())
+{
+    const auto opacity = m_container->supports_opacity_groups() ? 1.f : item.src_el()->css().get_opacity();
+    if(opacity <= 0)
+    {
+        m_visible = false;
+        return;
+    }
+    if(!item.has_paint_transform(children))
+    {
+        if(opacity != 1)
+        {
+            m_container->paint_opacity(m_opacity * opacity);
+        }
+        return;
+    }
+    motion_matrix matrix;
+    m_visible = item.paint_matrix(x, y, children, matrix) && item.src_el()->css().get_opacity() > 0;
+    if(!m_visible)
+    {
+        return;
+    }
+    if(matrix.values != motion_matrix{}.values)
+    {
+        m_container->push_transform(matrix);
+        ++m_container->paint_transform_depth();
+        m_pushed = true;
+    }
+    m_container->paint_opacity(m_opacity * opacity);
+}
+
+litehtml::render_paint_scope::~render_paint_scope() noexcept(false)
+{
+    m_container->paint_opacity(m_opacity);
+    if(m_pushed)
+    {
+        --m_container->paint_transform_depth();
+        // Cleanup must not replace an exception already being unwound.
+        if(std::uncaught_exceptions())
+        {
+            try
+            {
+                m_container->pop_transform();
+            }
+            catch(...)
+            {
+            }
+        } else
+        {
+            m_container->pop_transform();
+        }
+    }
+}
+
+const litehtml::position* litehtml::render_paint_scope::clip(const position* value) const
+{
+    // Transforms can move source boxes into the viewport.
+    return m_container->paint_transform_depth() ? nullptr : value;
+}
+
+void litehtml::render_item::draw_self(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip)
+{
+    render_paint_scope paint(*this, x, y, false);
+    if(paint.visible())
+    {
+        src_el()->draw(hdc, x, y, paint.clip(clip), shared_from_this());
+    }
+}
+
+bool litehtml::render_item::has_paint_transform(bool children) const
+{
+    const auto& el = src_el();
+    if(children && !el->css().get_motion().perspective.is_predefined())
+    {
+        return true;
+    }
+    if(auto tag = dynamic_cast<const html_tag*>(el.get()))
+    {
+        return tag->has_motion_transform();
+    }
+    return !el->css().get_transform().operations.empty();
+}
+
+bool litehtml::render_item::paint_matrix(pixel_t x, pixel_t y, bool children, motion_matrix& matrix) const
+{
+    if(!has_paint_transform(children))
+    {
+        matrix = motion_matrix{};
+        return true;
+    }
+    auto     el   = src_el();
+    auto     doc  = el->get_document();
+    position box  = m_pos;
+    box          += m_padding;
+    box          += m_borders;
+    box.x        += x;
+    box.y        += y;
+    const auto viewport = doc->motion_viewport();
+    const auto&           fm = el->css().get_font_metrics();
+    motion_length_context context;
+    context.box_width       = box.width;
+    context.box_height      = box.height;
+    context.font_size       = el->css().get_font_size();
+    context.root_font_size  = doc->root()->css().get_font_size();
+    context.x_height        = fm.x_height;
+    context.zero_advance    = fm.ch_width;
+    context.viewport_width  = viewport.width;
+    context.viewport_height = viewport.height;
+
+    auto tag = std::dynamic_pointer_cast<html_tag>(el);
+    bool visible =
+        tag ? tag->effective_motion_transform(context, matrix) : el->css().get_transform().matrix(context, matrix);
+    const auto& properties = el->css().get_motion();
+    float       origin[3]  = {0, 0, 0};
+    for(size_t i = 0; i < properties.transform_origin.size() && i < 3; ++i)
+    {
+        visible =
+            motion_resolve_length(properties.transform_origin[i],
+                                  i == 0 ? context.box_width : (i == 1 ? context.box_height : 0), context, origin[i]) &&
+            visible;
+    }
+    origin[0] += static_cast<float>(box.x);
+    origin[1] += static_cast<float>(box.y);
+    matrix     = motion_matrix::translation(origin[0], origin[1], origin[2]) * matrix *
+             motion_matrix::translation(-origin[0], -origin[1], -origin[2]);
+    if(children && !properties.perspective.is_predefined())
+    {
+        float distance = 0, px = 0, py = 0;
+        if(motion_resolve_length(properties.perspective, 0, context, distance) && distance >= 0 &&
+           motion_resolve_length(properties.perspective_origin[0], context.box_width, context, px) &&
+           motion_resolve_length(properties.perspective_origin[1], context.box_height, context, py))
+        {
+            px     += static_cast<float>(box.x);
+            py     += static_cast<float>(box.y);
+            matrix  = matrix * motion_matrix::translation(px, py) * motion_matrix::perspective(distance) *
+                     motion_matrix::translation(-px, -py);
+        }
+    }
+    motion_matrix inverse;
+    visible = visible && matrix.inverse(inverse);
+    if(properties.backface_visibility && inverse.values[10] < 0)
+    {
+        visible = false;
+    }
+
+    return visible;
+}
+
+namespace
+{
+    bool inverse_paint_point(const litehtml::motion_matrix& matrix, litehtml::pixel_t& x, litehtml::pixel_t& y)
+    {
+        // Intersect the inverse projected point with the element's z=0 plane.
+        const auto&  m  = matrix.values;
+        const double px = static_cast<float>(x), py = static_cast<float>(y);
+        const double a = m[0] - px * m[3], b = m[4] - px * m[7], c = px * m[15] - m[12];
+        const double d = m[1] - py * m[3], e = m[5] - py * m[7], f = py * m[15] - m[13];
+        const double determinant = a * e - b * d;
+        if(std::abs(determinant) < 1e-12)
+        {
+            return false;
+        }
+        const double lx = (c * e - b * f) / determinant, ly = (a * f - c * d) / determinant;
+        const double w = m[3] * lx + m[7] * ly + m[15];
+        if(!std::isfinite(lx) || !std::isfinite(ly) || w <= 0)
+        {
+            return false;
+        }
+        x = static_cast<float>(lx);
+        y = static_cast<float>(ly);
+        return true;
+    }
+} // namespace
+
+bool litehtml::render_item::map_paint_point(pixel_t& x, pixel_t& y, pixel_t& client_x, pixel_t& client_y,
+                                            bool children) const
+{
+    if(!has_paint_transform(children))
+    {
+        return true;
+    }
+    motion_matrix matrix;
+    if(!paint_matrix(0_px, 0_px, children, matrix))
+    {
+        return false;
+    }
+    pixel_t before_x = x, before_y = y;
+    if(!inverse_paint_point(matrix, x, y))
+    {
+        return false;
+    }
+    client_x += x - before_x;
+    client_y += y - before_y;
+    return true;
+}
+
+bool litehtml::render_item::is_paint_point_inside(pixel_t x, pixel_t y) const
+{
+    pixel_t cx = x, cy = y;
+    return map_paint_point(x, y, cx, cy, false) && is_point_inside(x, y);
 }

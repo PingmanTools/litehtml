@@ -1,3 +1,5 @@
+#include <cmath>
+#include <stdexcept>
 #include "html.h"
 #include "document.h"
 #include "document_container.h"
@@ -542,13 +544,135 @@ namespace litehtml
         return add_font(descr, fm);
     }
 
+    position document::motion_viewport() const
+    {
+        if(m_motion_viewport) return *m_motion_viewport;
+        position viewport;
+        m_container->get_viewport(viewport);
+        if(m_motion_scope_depth) m_motion_viewport = viewport;
+        return viewport;
+    }
+
+    void document::set_time(double milliseconds)
+    {
+        if(!std::isfinite(milliseconds) || milliseconds < 0)
+        {
+            throw std::invalid_argument("Document time must be finite and nonnegative");
+        }
+        m_motion_time = milliseconds;
+    }
+
+    bool document::animations_active() const
+    {
+        std::function<bool(const element::ptr&)> visit = [&](const element::ptr& node) {
+            if(!node || node->css().get_display() == display_none)
+            {
+                return false;
+            }
+            if(auto tag = std::dynamic_pointer_cast<html_tag>(node); tag && tag->motion_active())
+            {
+                return true;
+            }
+            for(const auto& child : node->children())
+            {
+                if(visit(child))
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+        return visit(m_root);
+    }
+
+    double document::next_animation_delay(const position& visible, double cadence) const
+    {
+        if(!std::isfinite(cadence) || cadence <= 0) return -1;
+        struct result {
+            double delay = -1;
+            bool outside = true, safe = true, vertical_outside = true, vertical_safe = true;
+        };
+        const auto minimum = [](double a, double b) { return a < 0 ? b : b < 0 ? a : std::min(a, b); };
+        std::function<result(const element::ptr&, bool, bool, bool)> visit =
+            [&](const element::ptr& node, bool uncertain, bool vertical_uncertain, bool needs_bounds) -> result {
+            if(!node || node->css().get_display() == display_none) return {};
+            const auto* tag = dynamic_cast<const html_tag*>(node.get());
+            bool paint_only = true, vertical_fixed = true;
+            const auto own_delay = tag ? tag->next_motion_delay(cadence, paint_only, vertical_fixed) : -1;
+            const bool fixed_or_perspective = node->css().get_position() == element_position_fixed ||
+                !node->css().get_motion().perspective.is_predefined();
+            uncertain = uncertain || fixed_or_perspective || (tag && tag->has_motion_transform());
+            vertical_uncertain = vertical_uncertain || fixed_or_perspective || !vertical_fixed;
+            needs_bounds = needs_bounds || (own_delay >= 0 && (paint_only || vertical_fixed));
+            result value;
+            value.safe = !uncertain && (own_delay < 0 || paint_only);
+            value.vertical_safe = !vertical_uncertain && (own_delay < 0 || vertical_fixed);
+            if(needs_bounds && (!uncertain || !vertical_uncertain))
+            {
+                if(const auto render = node->get_render_item())
+                {
+                    // Includes inline fragments, padding, borders, and ancestor scroll offsets.
+                    render->get_rendering_boxes([&](const position& box) {
+                        const bool outside_y = box.bottom() <= visible.y || box.y >= visible.bottom();
+                        value.vertical_outside = value.vertical_outside && outside_y;
+                        value.outside = value.outside && (outside_y || box.right() <= visible.x || box.x >= visible.right());
+                    });
+                }
+            }
+            for(const auto& child : node->children())
+            {
+                const auto sub = visit(child, uncertain, vertical_uncertain, needs_bounds);
+                value.delay = minimum(value.delay, sub.delay);
+                value.safe = value.safe && sub.safe;
+                value.outside = value.outside && sub.outside;
+                value.vertical_safe = value.vertical_safe && sub.vertical_safe;
+                value.vertical_outside = value.vertical_outside && sub.vertical_outside;
+            }
+            const bool outside = (paint_only && value.safe && value.outside) ||
+                (vertical_fixed && value.vertical_safe && value.vertical_outside);
+            if(!(m_root_render && outside)) value.delay = minimum(value.delay, own_delay);
+            return value;
+        };
+        return visit(m_root, false, false, false).delay;
+    }
+
+    document::animation_frame_result document::render_frame(double milliseconds, pixel_t max_width,
+        const position& visible, double cadence)
+    {
+        if(!std::isfinite(cadence) || cadence <= 0)
+            throw std::invalid_argument("Frame cadence must be finite and positive");
+        set_time(milliseconds);
+        animation_frame_result frame;
+        frame.width = render(max_width);
+        frame.active = m_rendered_motion_active;
+        if(frame.active) frame.next_delay = next_animation_delay(visible, cadence);
+        return frame;
+    }
+
     pixel_t document::render(pixel_t max_width, render_type rt)
     {
+        motion_viewport_scope motion_scope(*this);
         pixel_t ret = 0_px;
+        m_rendered_motion_active = false;
         if(m_root && m_root_render)
         {
-            position viewport;
-            m_container->get_viewport(viewport);
+            std::function<void(const element::ptr&, bool)> apply = [&](const element::ptr& node, bool visible) {
+                visible = visible && node->css().get_display() != display_none;
+                if(auto tag = std::dynamic_pointer_cast<html_tag>(node))
+                {
+                    tag->apply_motion();
+                    if(visible && !m_rendered_motion_active) m_rendered_motion_active = tag->motion_active();
+                }
+                for(const auto& child : node->children())
+                {
+                    apply(child, visible);
+                }
+            };
+            apply(m_root, true);
+        }
+        if(m_root && m_root_render)
+        {
+            const auto viewport = motion_viewport();
             containing_block_context cb_context;
             cb_context.width       = max_width;
             cb_context.width.type  = containing_block_context::cbc_value_type_absolute;
@@ -577,10 +701,29 @@ namespace litehtml
 
     void document::draw(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip)
     {
+        motion_viewport_scope motion_scope(*this);
         if(m_root && m_root_render)
         {
-            m_root->draw(hdc, x, y, clip, m_root_render);
-            m_root_render->draw_stacking_context(hdc, x, y, clip, true);
+            if(clip)
+            {
+                m_container->set_clip(*clip, {});
+            }
+            try
+            {
+                m_root_render->draw_group(hdc, x, y, clip, true);
+            }
+            catch(...)
+            {
+                if(clip)
+                {
+                    m_container->del_clip();
+                }
+                throw;
+            }
+            if(clip)
+            {
+                m_container->del_clip();
+            }
         }
     }
 

@@ -51,6 +51,7 @@ void litehtml::el_image::draw(uint_ptr hdc, pixel_t x, pixel_t y, const position
         if(pos.width > 0_px && pos.height > 0_px)
         {
             background_layer layer;
+            layer.opacity     = get_document()->container()->paint_opacity();
             layer.clip_box    = pos;
             layer.origin_box  = pos;
             layer.border_box  = pos;

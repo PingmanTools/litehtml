@@ -12,6 +12,7 @@
 
 void litehtml::css_properties::compute(const html_tag* el, const document::ptr& doc)
 {
+    compute_motion(el);
     m_color = el->get_property<web_color>(_color_, true, web_color::black, offset(m_color));
 
     m_el_position = static_cast<element_position>(

@@ -22,6 +22,11 @@ if(NOT EXTERNAL_GUMBO)
 endif()
 
 set(SOURCE_LITEHTML
+	src/motion_math.h
+	src/motion_timing.cpp
+	src/motion_transform.cpp
+	src/motion_style.cpp
+	src/motion_state.cpp
 	src/codepoint.cpp
 	src/css_length.cpp
 	src/css_selector.cpp
@@ -84,6 +89,10 @@ set(SOURCE_LITEHTML
 )
 
 set(HEADER_LITEHTML
+	include/litehtml/motion_timing.h
+	include/litehtml/motion_transform.h
+	include/litehtml/motion_style.h
+	include/litehtml/motion_state.h
 	include/litehtml.h
 	include/litehtml/background.h
 	include/litehtml/borders.h
@@ -201,6 +210,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
 	CXX_STANDARD 17
+	CXX_STANDARD_REQUIRED ON
 	C_STANDARD 99
 	PUBLIC_HEADER "${HEADER_LITEHTML}"
 )

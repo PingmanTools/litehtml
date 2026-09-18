@@ -58,11 +58,24 @@ namespace litehtml
         css_token        block;
     };
 
+    struct motion_keyframes
+    {
+        std::string                name;
+        std::map<double, style>    frames;
+        media_query_list_list::ptr media;
+    };
+
     class css
     {
-        css_selector::vector m_selectors;
+        css_selector::vector          m_selectors;
+        std::vector<motion_keyframes> m_keyframes;
 
       public:
+        const motion_keyframes*              find_keyframes(const std::string& name) const;
+        const std::vector<motion_keyframes>& keyframes() const
+        {
+            return m_keyframes;
+        }
         const css_selector::vector& selectors() const
         {
             return m_selectors;
@@ -75,6 +88,8 @@ namespace litehtml
         void sort_selectors();
 
       private:
+        void parse_keyframes_rule(const raw_rule::ptr& rule, const std::string& baseurl,
+                                  const std::shared_ptr<document>& doc, const media_query_list_list::ptr& media);
         bool parse_style_rule(const raw_rule::ptr& rule, const std::string& baseurl,
                               const std::shared_ptr<document>& doc, const media_query_list_list::ptr& media);
         void parse_import_rule(const raw_rule::ptr& rule, const std::string& baseurl,

@@ -364,6 +364,7 @@ namespace litehtml
         m_style.subst_vars(this);
 
         m_css.compute(this, doc);
+        m_motion_state.style_changed(*this, m_style);
 
         if(recursive)
         {
@@ -935,7 +936,6 @@ namespace litehtml
                         }
 
                         layer.border_radius = bdr.radius.calc_percents(box.width, box.height);
-
                         get_document()->container()->round_paint_position(layer.border_box);
                         get_document()->container()->round_paint_position(layer.clip_box);
                         get_document()->container()->round_paint_position(layer.origin_box);
@@ -948,7 +948,7 @@ namespace litehtml
                     borders b = bdr;
                     b.radius  = bdr.radius.calc_percents(box.width, box.height);
                     get_document()->container()->round_paint_position(box);
-                    get_document()->container()->draw_borders(hdc, b, box, false);
+                    get_document()->container()->draw_borders(hdc, get_document()->container()->paint_borders(b), box, false);
                 }
             }
             return true;
@@ -988,7 +988,6 @@ namespace litehtml
                             layer.clip_box   = *clip;
                             layer.border_box = *clip;
                         }
-
                         get_document()->container()->round_paint_position(layer.border_box);
                         get_document()->container()->round_paint_position(layer.clip_box);
                         get_document()->container()->round_paint_position(layer.origin_box);
@@ -1002,7 +1001,7 @@ namespace litehtml
                 {
                     get_document()->container()->round_paint_position(border_box);
                     bdr.radius = m_css.get_borders().radius.calc_percents(border_box.width, border_box.height);
-                    get_document()->container()->draw_borders(hdc, bdr, border_box, is_root());
+                    get_document()->container()->draw_borders(hdc, get_document()->container()->paint_borders(bdr), border_box, is_root());
                 }
             }
         }
@@ -1096,7 +1095,7 @@ namespace litehtml
         pixel_t sz_font   = css().get_font_size();
         lm.pos.x          = pos.x;
         lm.pos.width      = sz_font / 3_px;
-        lm.color          = css().get_color();
+        lm.color          = get_document()->container()->paint_color(css().get_color());
         lm.marker_type    = css().get_list_style_type();
         lm.font           = css().get_font();
 

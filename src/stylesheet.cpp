@@ -3,6 +3,7 @@
 #include "css_parser.h"
 #include "document.h"
 #include "document_container.h"
+#include <cmath>
 
 namespace litehtml
 {
@@ -161,6 +162,11 @@ namespace litehtml
             // Otherwise: at-rule
             switch(_id(lowcase(rule->name)))
             {
+            case _keyframes_:
+                parse_keyframes_rule(rule, baseurl, doc, media);
+                import_allowed = false;
+                break;
+
             case _charset_: // ignored  https://www.w3.org/TR/css-syntax-3/#charset-rule
                 break;
 
@@ -302,6 +308,112 @@ namespace litehtml
             add_selector(sel);
         }
         return true;
+    }
+
+    const motion_keyframes* css::find_keyframes(const std::string& name) const
+    {
+        for(auto it = m_keyframes.rbegin(); it != m_keyframes.rend(); ++it)
+        {
+            if(it->name == name && (!it->media || it->media->is_used()))
+            {
+                return &*it;
+            }
+        }
+        return nullptr;
+    }
+
+    void css::parse_keyframes_rule(const raw_rule::ptr& rule, const std::string& baseurl,
+                                   const std::shared_ptr<document>& doc, const media_query_list_list::ptr& media)
+    {
+        auto prelude = rule->prelude;
+        remove_whitespace(prelude);
+        if(prelude.size() != 1 || rule->block.type != CURLY_BLOCK)
+        {
+            return;
+        }
+        auto        token = prelude[0];
+        std::string name;
+        if(token.type == STRING)
+        {
+            name = token.str();
+        } else if(token.type == IDENT)
+        {
+            name       = token.name();
+            auto lower = lowcase(name);
+            if(lower == "none" || lower == "inherit" || lower == "initial" || lower == "unset" || lower == "revert" ||
+               lower == "revert-layer" || lower == "default")
+            {
+                return;
+            }
+        } else
+        {
+            return;
+        }
+        motion_keyframes result{name, {}, media};
+        for(const auto& frame : css_parser::parse_stylesheet(rule->block.value, false))
+        {
+            if(frame->type != raw_rule::qualified || frame->block.type != CURLY_BLOCK)
+            {
+                continue;
+            }
+            auto selectors = frame->prelude;
+            remove_whitespace(selectors);
+            std::vector<double> offsets;
+            bool                valid = true;
+            for(const auto& item : parse_comma_separated_list(selectors))
+            {
+                if(item.size() != 1)
+                {
+                    valid = false;
+                    break;
+                }
+                const auto& selector = item[0];
+                auto        ident    = lowcase(selector.ident());
+                if(ident == "from")
+                {
+                    offsets.push_back(0);
+                } else if(ident == "to")
+                {
+                    offsets.push_back(1);
+                } else if(selector.type == PERCENTAGE && std::isfinite(selector.n.number) && selector.n.number >= 0 &&
+                          selector.n.number <= 100)
+                {
+                    offsets.push_back(selector.n.number / 100.0);
+                } else
+                {
+                    valid = false;
+                    break;
+                }
+            }
+            if(!valid || offsets.empty())
+            {
+                continue;
+            }
+            raw_declaration::vector declarations;
+            raw_rule::vector        nested;
+            css_parser(frame->block.value).consume_style_block_contents(declarations, nested);
+            style block;
+            for(auto& declaration : declarations)
+            {
+                // Important declarations cannot override the animation cascade from inside a keyframe.
+                if(declaration.important)
+                {
+                    continue;
+                }
+                remove_whitespace(declaration.value);
+                auto property = declaration.name.substr(0, 2) == "--" ? declaration.name : lowcase(declaration.name);
+                block.add_property(_id(property), declaration.value, baseurl, false, doc->container());
+            }
+            for(auto offset : offsets)
+            {
+                result.frames[offset].combine(block);
+            }
+        }
+        if(media)
+        {
+            doc->add_media_list(media);
+        }
+        m_keyframes.push_back(std::move(result));
     }
 
     void css::sort_selectors()

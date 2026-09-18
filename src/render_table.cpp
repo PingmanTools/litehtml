@@ -1,5 +1,6 @@
 #include "render_table.h"
 #include "document.h"
+#include "document_container.h"
 #include "iterators.h"
 
 litehtml::render_item_table::render_item_table(std::shared_ptr<element> _src_el) :
@@ -313,7 +314,7 @@ litehtml::rendered_width litehtml::render_item_table::_render(pixel_t x, pixel_t
                 cell->el->pos().y      = m_grid->row(row).top + cell->el->content_offset_top();
                 cell->el->pos().height = m_grid->row(span_row).bottom - m_grid->row(row).top -
                                          cell->el->content_offset_top() - cell->el->content_offset_bottom();
-                table_height           = std::max(table_height, m_grid->row(span_row).bottom);
+                table_height = std::max(table_height, m_grid->row(span_row).bottom);
                 cell->el->apply_vertical_align();
             }
         }
@@ -451,6 +452,12 @@ void litehtml::render_item_table::draw_children(uint_ptr hdc, pixel_t x, pixel_t
     {
         return;
     }
+    render_paint_scope paint(*this, x, y, true);
+    if(!paint.visible())
+    {
+        return;
+    }
+    clip = paint.clip(clip);
 
     position pos  = m_pos;
     pos.x        += x;
@@ -461,31 +468,82 @@ void litehtml::render_item_table::draw_children(uint_ptr hdc, pixel_t x, pixel_t
         {
             continue;
         }
+        if(caption->is_opacity_group())
+        {
+            if(flag == draw_inlines) caption->draw_group(hdc, pos.x, pos.y, clip, true);
+            continue;
+        }
         if(flag == draw_block)
         {
-            caption->src_el()->draw(hdc, pos.x, pos.y, clip, caption);
+            caption->draw_self(hdc, pos.x, pos.y, clip);
         }
         caption->draw_children(hdc, pos.x, pos.y, clip, flag, zindex);
     }
     for(int row = 0; row < m_grid->rows_count(); row++)
     {
-        const bool row_visible = m_grid->row(row).el_row->is_visible();
-        if(row_visible && flag == draw_block)
+        auto row_item = m_grid->row(row).el_row;
+        const auto paint_row = [&](draw_flag flag, int zindex)
         {
-            m_grid->row(row).el_row->src_el()->draw_background(hdc, pos.x, pos.y, clip, m_grid->row(row).el_row);
-        }
-        for(int col = 0; col < m_grid->cols_count(); col++)
-        {
-            table_cell* cell = m_grid->cell(col, row);
-            if(cell->el && row_visible && cell->el->is_visible())
+            render_paint_scope row_paint(*m_grid->row(row).el_row, pos.x, pos.y, true);
+            const bool         row_visible = row_paint.visible() && m_grid->row(row).el_row->is_visible();
+            if(row_visible && flag == draw_block)
             {
-                if(flag == draw_block)
-                {
-                    cell->el->src_el()->draw(hdc, pos.x, pos.y, clip, cell->el);
-                }
-                cell->el->draw_children(hdc, pos.x, pos.y, clip, flag, zindex);
+                m_grid->row(row).el_row->src_el()->draw_background(hdc, pos.x, pos.y, row_paint.clip(clip),
+                                                                   m_grid->row(row).el_row);
             }
+            for(int col = 0; col < m_grid->cols_count(); col++)
+            {
+                table_cell* cell = m_grid->cell(col, row);
+                if(cell->el && row_visible && cell->el->is_visible())
+                {
+                    if(cell->el->is_opacity_group())
+                    {
+                        if(flag == draw_inlines)
+                            cell->el->draw_group(hdc, pos.x, pos.y, row_paint.clip(clip), true);
+                        continue;
+                    }
+                    if(flag == draw_block)
+                    {
+                        cell->el->draw_self(hdc, pos.x, pos.y, row_paint.clip(clip));
+                    }
+                    cell->el->draw_children(hdc, pos.x, pos.y, row_paint.clip(clip), flag, zindex);
+                }
+            }
+        };
+        if(!row_item->is_opacity_group())
+        {
+            paint_row(flag, zindex);
+            continue;
         }
+        if(flag != draw_inlines || !row_item->is_visible() || row_item->src_el()->css().get_opacity() <= 0)
+            continue;
+        auto container = src_el()->get_document()->container();
+        container->push_opacity(row_item->src_el()->css().get_opacity());
+        try
+        {
+            std::map<int, bool> levels;
+            const auto collect = [&](const auto& visit, const std::shared_ptr<render_item>& item) -> void
+            {
+                for(const auto& child : item->children())
+                {
+                    if(child->src_el()->is_positioned()) levels[child->src_el()->css().get_z_index()];
+                    else if(!child->is_opacity_group()) visit(visit, child);
+                }
+            };
+            collect(collect, row_item);
+            // Row backgrounds must precede cell backgrounds and positioned descendants.
+            paint_row(draw_block, 0);
+            for(const auto& level : levels) if(level.first < 0) paint_row(draw_positioned, level.first);
+            paint_row(draw_floats, 0);
+            paint_row(draw_inlines, 0);
+            for(const auto& level : levels) if(level.first >= 0) paint_row(draw_positioned, level.first);
+        }
+        catch(...)
+        {
+            try { container->pop_opacity(); } catch(...) {}
+            throw;
+        }
+        container->pop_opacity();
     }
 }
 

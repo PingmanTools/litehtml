@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <vector>
+#include <optional>
 
 using GumboOutput = struct GumboInternalOutput;
 
@@ -72,12 +73,62 @@ namespace litehtml
         std::string                             m_lang;
         std::string                             m_culture;
         std::string                             m_text;
-        document_mode                           m_mode      = no_quirks_mode;
-        bool                                    m_finalized = false;
+        document_mode                           m_mode        = no_quirks_mode;
+        bool                                    m_finalized   = false;
+        double                                  m_motion_time = 0;
+        bool                                    m_rendered_motion_active = false;
+        mutable std::optional<position>          m_motion_viewport;
+        mutable unsigned                        m_motion_scope_depth = 0;
 
       public:
         document(document_container* objContainer);
+        // Cache the viewport only within an operation; layout and scrolling can invalidate it.
+        class motion_viewport_scope
+        {
+            const document& m_document;
+          public:
+            explicit motion_viewport_scope(const document& doc) : m_document(doc)
+            {
+                ++m_document.m_motion_scope_depth;
+            }
+            ~motion_viewport_scope()
+            {
+                if(--m_document.m_motion_scope_depth == 0) m_document.m_motion_viewport.reset();
+            }
+            motion_viewport_scope(const motion_viewport_scope&) = delete;
+            motion_viewport_scope& operator=(const motion_viewport_scope&) = delete;
+        };
+        position motion_viewport() const;
+        void   set_time(double milliseconds);
+        double time() const
+        {
+            return m_motion_time;
+        }
+        bool animations_active() const;
+        struct animation_frame_result
+        {
+            pixel_t width;
+            double next_delay = -1;
+            bool active = false;
+        };
+        animation_frame_result render_frame(double milliseconds, pixel_t max_width,
+            const position& visible, double cadence = 1000.0 / 60);
+        // Returns milliseconds, or a negative value when no timer is needed.
+        double next_animation_delay(const position& visible, double cadence = 1000.0 / 60) const;
         virtual ~document();
+
+        const motion_keyframes* find_keyframes(const std::string& name) const
+        {
+            if(auto frames = m_user_css.find_keyframes(name))
+            {
+                return frames;
+            }
+            if(auto frames = m_styles.find_keyframes(name))
+            {
+                return frames;
+            }
+            return m_master_css.find_keyframes(name);
+        }
 
         document_container* container() const
         {

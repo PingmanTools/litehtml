@@ -7,6 +7,7 @@
 #include "borders.h"
 #include "element.h"
 #include "font_description.h"
+#include "motion_transform.h"
 #include <cmath>
 #include <memory>
 #include <functional>
@@ -33,6 +34,10 @@ namespace litehtml
     // call back interface to draw text, images and other elements
     class document_container
     {
+      private:
+        float    m_paint_opacity         = 1;
+        unsigned m_paint_transform_depth = 0;
+
       public:
         // Changing size resolution requires recomputing styles and layout.
         virtual pixel_t resolve_font_size(pixel_t size) const
@@ -47,6 +52,37 @@ namespace litehtml
         // Paint rounding does not affect layout geometry.
         virtual void round_paint_position(position& pos) const { pos.round(); }
 
+        // Group opacity applies once to the composited subtree.
+        virtual bool supports_opacity_groups() const { return false; }
+        virtual void push_opacity(float) {}
+        virtual void pop_opacity() {}
+        virtual void push_transform(const motion_matrix&) {}
+        virtual void pop_transform() {}
+        float        paint_opacity() const
+        {
+            return m_paint_opacity;
+        }
+        void paint_opacity(float value)
+        {
+            m_paint_opacity = value;
+        }
+        unsigned& paint_transform_depth()
+        {
+            return m_paint_transform_depth;
+        }
+        web_color paint_color(web_color color) const
+        {
+            color.alpha = static_cast<unsigned char>(std::lround(color.alpha * std::clamp(m_paint_opacity, 0.f, 1.f)));
+            return color;
+        }
+        borders paint_borders(borders value) const
+        {
+            value.left.color   = paint_color(value.left.color);
+            value.right.color  = paint_color(value.right.color);
+            value.top.color    = paint_color(value.top.color);
+            value.bottom.color = paint_color(value.bottom.color);
+            return value;
+        }
         virtual litehtml::uint_ptr create_font(const font_description& descr, const document* doc,
                                                litehtml::font_metrics* fm)                                          = 0;
         virtual void               delete_font(litehtml::uint_ptr hFont)                                            = 0;

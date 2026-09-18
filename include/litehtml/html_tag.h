@@ -8,6 +8,7 @@
 #include "style.h"
 #include "stylesheet.h"
 #include "table.h"
+#include "motion_state.h"
 
 namespace litehtml
 {
@@ -28,6 +29,7 @@ namespace litehtml
         string_vector          m_str_classes;
         std::vector<string_id> m_classes;
         style                  m_style;
+        motion_state           m_motion_state;
         string_map             m_attrs;
         std::vector<string_id> m_pseudo_classes;
 
@@ -73,6 +75,27 @@ namespace litehtml
         bool set_class(const char* pclass, bool add) override;
         bool is_replaced() const override;
         void compute_styles(bool recursive = true) override;
+        void apply_motion()
+        {
+            m_motion_state.apply(*this);
+        }
+        bool motion_active() const
+        {
+            return m_motion_state.active(*get_document());
+        }
+        double next_motion_delay(double cadence, bool& paint_only, bool& vertical_fixed) const
+        {
+            return m_motion_state.next_delay(*get_document(), cadence, paint_only, vertical_fixed);
+        }
+        bool has_motion_transform() const
+        {
+            return m_motion_state.has_transform();
+        }
+        bool effective_motion_transform(const motion_length_context& context, motion_matrix& out) const
+        {
+            return m_motion_state.transform(context, out);
+        }
+
         void draw(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip,
                   const std::shared_ptr<render_item>& ri) override;
         void draw_background(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip,

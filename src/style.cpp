@@ -192,6 +192,11 @@ namespace litehtml
             return add_parsed_property(name, property_value(value, important, true));
         }
 
+        if(parse_motion_property(name, value, important))
+        {
+            return;
+        }
+
         // valid only if value contains a single token
         css_token val = value.size() == 1 ? value[0] : css_token();
         // nonempty if value is a single identifier

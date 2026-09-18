@@ -40,6 +40,12 @@ namespace litehtml
 
         _active_, _hover_,
 
+        _keyframes_, _animation_, _animation_name_, _animation_duration_, _animation_delay_,
+        _animation_timing_function_, _animation_iteration_count_, _animation_direction_, _animation_fill_mode_,
+        _animation_play_state_, _transition_, _transition_property_, _transition_duration_, _transition_delay_,
+        _transition_timing_function_, _transform_, _transform_origin_, _transform_style_, _opacity_, _perspective_,
+        _perspective_origin_, _backface_visibility_,
+
         // CSS property names
         // Side properties must go in this order: top, right, bottom, left (clockwise starting from the top).
         // Corner properties must go in this order: top-left, top-right, bottom-right, bottom-left (clockwise starting

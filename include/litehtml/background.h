@@ -24,7 +24,8 @@ namespace litehtml
         background_attachment attachment = background_attachment_scroll;
         background_repeat     repeat     = background_repeat_repeat;
         // is_root is true for root element. Container can use this flag to apply background to the top window.
-        bool is_root = false;
+        bool  is_root = false;
+        float opacity = 1;
 
         background_layer() = default;
 

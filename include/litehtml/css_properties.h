@@ -7,6 +7,7 @@
 #include "css_margins.h"
 #include "css_offsets.h"
 #include "types.h"
+#include "motion_style.h"
 
 namespace litehtml
 {
@@ -32,6 +33,8 @@ namespace litehtml
     class css_properties
     {
       private:
+        motion_properties     m_motion;
+        void                  compute_motion(const html_tag* el);
         element_position      m_el_position    = element_position_static;
         text_align            m_text_align     = text_align_left;
         overflow              m_overflow       = overflow_visible;
@@ -105,6 +108,22 @@ namespace litehtml
         void      snap_border_width(css_length& width, const std::shared_ptr<document>& doc);
 
       public:
+        const motion_properties& get_motion() const
+        {
+            return m_motion;
+        }
+        void set_opacity(float value)
+        {
+            m_motion.opacity = value;
+        }
+        float get_opacity() const
+        {
+            return m_motion.opacity;
+        }
+        const motion_transform_list& get_transform() const
+        {
+            return m_motion.transform;
+        }
         void compute(const html_tag* el, const std::shared_ptr<document>& doc);
 
         std::vector<std::tuple<std::string, std::string>> dump_get_attrs();

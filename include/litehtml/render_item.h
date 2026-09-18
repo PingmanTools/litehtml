@@ -15,6 +15,25 @@
 namespace litehtml
 {
     class element;
+    class document_container;
+    class render_item;
+    class render_paint_scope
+    {
+        document_container* m_container;
+        float               m_opacity;
+        bool                m_pushed  = false;
+        bool                m_visible = true;
+
+      public:
+        render_paint_scope(render_item& item, pixel_t x, pixel_t y, bool children);
+        ~render_paint_scope() noexcept(false);
+        render_paint_scope(const render_paint_scope&) = delete;
+        bool visible() const
+        {
+            return m_visible;
+        }
+        const position* clip(const position* value) const;
+    };
 
     class render_item : public std::enable_shared_from_this<render_item>
     {
@@ -479,6 +498,13 @@ namespace litehtml
         virtual void set_inline_boxes(position::vector& /*boxes*/) {};
         virtual void add_inline_box(const position& /*box*/) {};
         virtual void clear_inline_boxes() {};
+        bool         has_paint_transform(bool children) const;
+        bool         paint_matrix(pixel_t x, pixel_t y, bool children, motion_matrix& out) const;
+        bool         map_paint_point(pixel_t& x, pixel_t& y, pixel_t& client_x, pixel_t& client_y, bool children) const;
+        bool         is_paint_point_inside(pixel_t x, pixel_t y) const;
+        void draw_group(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip, bool with_positioned);
+        bool is_opacity_group() const;
+        void         draw_self(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip);
         void draw_stacking_context(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip, bool with_positioned);
         virtual void    draw_children(uint_ptr hdc, pixel_t x, pixel_t y, const position* clip, draw_flag flag,
                                       int zindex);

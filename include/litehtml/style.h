@@ -7,6 +7,7 @@
 #include "css_tokenizer.h"
 #include "gradient.h"
 #include "web_color.h"
+#include "motion_style.h"
 
 namespace litehtml
 {
@@ -19,7 +20,8 @@ namespace litehtml
 
     struct property_value
         : variant<invalid, inherit, int, int_vector, css_length, length_vector, float, web_color, std::vector<image>,
-                  std::string, std::vector<std::string>, size_vector, css_token_vector>
+                  std::string, std::vector<std::string>, size_vector, css_token_vector, motion_numbers, motion_timings,
+                  motion_names, motion_transform_list>
     {
         bool m_important = false;
         bool m_has_var   = false; // css_token_vector, parsing is delayed because of var()
@@ -71,9 +73,15 @@ namespace litehtml
             m_properties.clear();
         }
 
+        bool has_variables() const
+        {
+            return std::any_of(m_properties.begin(), m_properties.end(),
+                [](const auto& property) { return property.second.m_has_var; });
+        }
         void subst_vars(const html_tag* el);
 
       private:
+        bool parse_motion_property(string_id name, const css_token_vector& tokens, bool important);
         void inherit_property(string_id name, bool important);
 
         void parse_background(const css_token_vector& tokens, const std::string& baseurl, bool important,

@@ -703,6 +703,8 @@ namespace litehtml
     void litehtml::background::draw_layer(uint_ptr hdc, int idx, const background_layer& layer,
                                           document_container* container) const
     {
+        background_layer faded  = layer;
+        faded.opacity          *= container->paint_opacity();
         switch(get_layer_type(idx))
         {
         case background::type_color:
@@ -710,7 +712,7 @@ namespace litehtml
                 auto color_layer = get_color_layer(idx);
                 if(color_layer)
                 {
-                    container->draw_solid_fill(hdc, layer, color_layer->color);
+                    container->draw_solid_fill(hdc, layer, container->paint_color(color_layer->color));
                 }
             }
             break;
@@ -720,7 +722,7 @@ namespace litehtml
                 auto image_layer = get_image_layer(idx);
                 if(image_layer)
                 {
-                    container->draw_image(hdc, layer, image_layer->url, image_layer->base_url);
+                    container->draw_image(hdc, faded, image_layer->url, image_layer->base_url);
                 }
             }
             break;
@@ -730,7 +732,7 @@ namespace litehtml
                 auto gradient_layer = get_linear_gradient_layer(idx, layer);
                 if(gradient_layer)
                 {
-                    container->draw_linear_gradient(hdc, layer, *gradient_layer);
+                    container->draw_linear_gradient(hdc, faded, *gradient_layer);
                 }
             }
             break;
@@ -740,7 +742,7 @@ namespace litehtml
                 auto gradient_layer = get_radial_gradient_layer(idx, layer);
                 if(gradient_layer)
                 {
-                    container->draw_radial_gradient(hdc, layer, *gradient_layer);
+                    container->draw_radial_gradient(hdc, faded, *gradient_layer);
                 }
             }
             break;
@@ -750,7 +752,7 @@ namespace litehtml
                 auto gradient_layer = get_conic_gradient_layer(idx, layer);
                 if(gradient_layer)
                 {
-                    container->draw_conic_gradient(hdc, layer, *gradient_layer);
+                    container->draw_conic_gradient(hdc, faded, *gradient_layer);
                 }
             }
             break;
